@@ -1,0 +1,582 @@
+---
+title: "Lake Michigan Water Level Forecasting"
+author: "Nuka Gvilia, Veda Kilaru, Anisha BharathSingh, Thomas Harmon, Ani Baghdasaryan"
+date: "5/23/2022"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#########################################
+# STEP 0: Set-Up                        #
+#########################################
+
+```{r}
+defaultW <- getOption("warn") 
+options(warn = -1)
+
+#library(fpp)
+library(tseries)
+library(ggplot2)
+library(forecast)
+library(TSA)
+library(vars)
+#library(plotly)
+```
+
+
+```{r}
+water_level <- read.csv("water_level_data.csv")
+temperature <- read.csv("temperature.csv")
+precipitation <- read.csv("precipitation.csv")
+```
+
+#########################################
+# STEP 1: Data pre-processing           #
+#########################################
+
+```{r}
+# Water level
+water_level <- water_level[1:528,]
+water_level.ts <- ts(water_level$MSL, start = 1978, frequency = 12) # Convert to time series object
+
+# Temperature
+temperature <- temperature[1:528, ]
+temp_transpose <- data.frame(t(temperature[, 2:13]))
+temp <- data.frame(Temperature=unlist(temp_transpose, use.names = FALSE))
+temperature.ts <- ts(temp, start = 1978, end = c(2021, 12), frequency = 12) # Convert to time series object
+
+# Precipitation
+precipitation <- precipitation[1:528, ]
+precip_transpose <- data.frame(t(precipitation[, 2:13]))
+precip <- data.frame(Precipitation=unlist(precip_transpose, use.names = FALSE))
+precipitation.ts <- ts(precip, start = 1978, end = c(2021, 12), frequency = 12) # Convert to time series object
+
+# Final dataframe
+df = data.frame(water_level.ts, temperature.ts, precipitation.ts)
+```
+
+
+#########################################
+# STEP 2: Initial data exploration      #
+#########################################
+
+```{r}
+plot(water_level.ts, ylab="Feet above MSL", xlab="Year", main="Average Water Level of Lake Michigan")
+plot(temperature.ts, ylab="Degrees Fahrenheit", xlab="Year", main="Average Temperature of Chicago")
+plot(precipitation.ts, ylab="Inches", xlab="Year", main="Average Precipitation in Chicago")
+```
+```{r}
+plot(decompose(water_level.ts), xlab="Year")
+plot(decompose(temperature.ts), xlab="Year")
+plot(decompose(precipitation.ts), xlab="Year")
+```
+```{r}
+tsdisplay(water_level.ts, ylab="Feet above MSL", xlab="Year", main="Average Water Level of Lake Michigan")
+tsdisplay(temperature.ts, ylab="Degrees Fahrenheit", xlab="Year", main="Average Temperature of Chicago")
+tsdisplay(precipitation.ts, ylab="Inches", xlab="Year", main="Average Precipitation in Chicago")
+```
+```{r}
+ggAcf(water_level.ts, lag=100)
+ggAcf(temperature.ts, lag=100)
+ggAcf(precipitation.ts, lag=100)
+```
+
+```{r}
+ggPacf(water_level.ts, lag=100)
+ggPacf(temperature.ts, lag=100)
+ggPacf(precipitation.ts, lag=100)
+```
+
+## CORRELATION
+```{r}
+cor(df)
+```
+
+
+```{r}
+#plot_ly(x=temperature.ts, y=water_level.ts, z=precipitation.ts, type="scatter3d", mode="markers", color=temp) %>% layout(scene = list(xaxis=list(title="Temperature"), yaxis=list(title="Water Level"), zaxis=list(title="Precipitation")))
+
+plot(x=water_level.ts, y=temperature.ts, xlab="Average Water Level", ylab="Average Temperature", main="Water Level vs. Temperature")
+plot(x=water_level.ts, y=precipitation.ts, xlab="Average Water Level", ylab="Average Precipitation", main="Water Level vs. Precipitation")
+plot(x=precipitation.ts, y=temperature.ts, xlab="Average Precipitation", ylab="Average Temperature", main="Precipitation vs. Temperature")
+```
+
+#########################################
+# STEP 3: Data transformations          #
+#########################################
+
+```{r}
+defaultW <- getOption("warn") 
+options(warn = -1)
+
+lw <- BoxCox.lambda(water_level.ts)
+lw # close to 2
+
+lt <- BoxCox.lambda(temperature.ts)
+lt # close to 2
+
+lp <- BoxCox.lambda(precipitation.ts)
+lp # close to 0 i.e. ln()
+```
+
+```{r}
+tsdisplay(water_level.ts)
+tsdisplay(temperature.ts)
+tsdisplay(precipitation.ts)
+```
+
+## Variation for all variables does not appear to increase/decrease with the level of the series; transformation not needed. 
+
+#########################################
+# STEP 4: Stationarity                  #
+#########################################
+
+```{r}
+# No differencing
+plot(water_level.ts, main="Water Level: No Differencing")
+kpss.test(water_level.ts) # small p-value, series is *not* level stationary
+adf.test(water_level.ts) # large p-value, series is *not* level stationary
+
+plot(temperature.ts, main="Temperature: No Differencing")
+kpss.test(temperature.ts) # large p-value, series *is* level stationary
+adf.test(temperature.ts) # small p-value, series *is* level stationary
+
+plot(precipitation.ts, main="Precipitation: No Differencing")
+kpss.test(precipitation.ts) # large p-value, series *is* level stationary
+adf.test(precipitation.ts) # small p-value, series *is* level stationary
+```
+
+```{r}
+# Try with one order of seasonal differencing first for water level
+water_seadiff <- diff(water_level.ts, lag=12)
+plot(water_seadiff, ylab="Seasonal Difference of Water Level", xlab="Year")
+acf(water_seadiff, lag=36)
+pacf(water_seadiff, lag=36)
+tsdisplay(water_seadiff)
+tsdisplay(diff(water_seadiff))
+#checkresiduals(water_seadiff)
+
+plot(diff(water_seadiff))
+acf(diff(water_seadiff), lag=100)
+pacf(diff(water_seadiff), lag=100)
+#checkresiduals(diff(water_seadiff))
+
+# Try with one order regular differencing first for water level
+water_diff <- diff(water_level.ts)
+plot(water_diff)
+acf(water_diff, lag=36)
+pacf(water_diff, lag=48)
+
+plot(diff(water_diff, lag=12))
+acf(diff(water_diff, lag=12), lag=36)
+pacf(diff(water_diff, lag=12), lag=48)
+
+tsdisplay(water_diff)
+tsdisplay(diff(water_diff, lag=12))
+
+# One order regular differencing with temperature
+temp_seadiff <- diff(temperature.ts, lag=12)
+tsdisplay(temp_seadiff)
+tsdisplay(diff(temp_seadiff))
+
+temp_diff <- diff(temperature.ts)
+tsdisplay(temp_diff)
+tsdisplay(diff(temp_diff, lag=12))
+
+# One order regular differencing with precipitation
+acf(precipitation.ts, lag.max=100)
+precip_seadiff <- diff(precipitation.ts, lag=12)
+tsdisplay(precip_seadiff)
+tsdisplay(diff(temp_seadiff))
+
+ndiffs(temperature.ts)
+nsdiffs(temperature.ts)
+
+ndiffs(precipitation.ts)
+nsdiffs(precipitation.ts)
+
+plot(diff(water_level.ts))
+tsdisplay(water_seadiff)
+kpss.test(water_seadiff) # large p-value, series is level stationary
+adf.test(water_seadiff) # small p-value, series is level stationary
+ndiffs(water_level.ts) # 1 order of differencing required
+nsdiffs(water_level.ts) # 1 order of seasonal differencing required
+ndiffs(water_seadiff)
+nsdiffs(water_diff)
+
+# First order differencing
+plot(diff(water_level.ts), main="Water Level: 1st Order Differencing")
+kpss.test(diff(water_level.ts)) # large p-value, series is level stationary
+adf.test(diff(water_level.ts)) # small p-value, series is level stationary
+
+temp_seadiff <- diff(temperature.ts, lag=12)
+tsdisplay(temp_seadiff)
+kpss.test(temp_seadiff) # large p-value, series is level stationary
+adf.test(temp_seadiff) # small p-value, series is level stationary
+nsdiffs(temperature.ts) # 1
+
+precip_seadiff <- diff(precipitation.ts, lag=12)
+tsdisplay(precip_seadiff)
+kpss.test(precip_seadiff) # large p-value, series is level stationary
+adf.test(precip_seadiff) # small p-value, series is level stationary
+nsdiffs(precipitation.ts) # 0
+```
+
+#########################################
+# STEP 5: Train/Test split              #
+#########################################
+```{r}
+# train time period: 1/1978 - 12/2016 
+# test time period: 1/2017 - 12/2021
+
+water_train <- window(water_level.ts, start=c(1978,1), end=c(2016,12))
+water_test <- window(water_level.ts, start=c(2017,1), end=c(2021,12))
+
+temp_train <- window(temperature.ts, start=c(1978,1), end=c(2016,12))
+temp_test <- window(temperature.ts, start=c(2017,1), end=c(2021,12))
+
+precip_train <- window(precipitation.ts, start=c(1978,1), end=c(2016,12))
+precip_test <- window(precipitation.ts, start=c(2017,1), end=c(2021,12))
+
+df_train <-data.frame(water_train, temp_train, precip_train)
+df_test <- data.frame(water_test, temp_test, precip_test)
+
+# forecast horizon
+h <- as.integer(length(water_test))
+```
+
+
+#########################################
+# STEP 6: Model & Forecast: sARIMA      #
+#########################################
+
+```{r}
+arima.seasonal <- Arima(water_level.ts, order = c(2, 1, 0), seasonal = c(0, 1, 1))
+arima.seasonal
+checkresiduals(arima.seasonal)
+Acf(arima.seasonal$residuals, 100)
+```
+
+```{r}
+arima.seasonal.2 <- Arima(water_level.ts, order = c(2, 1, 0), seasonal = c(2, 1, 0))
+arima.seasonal.2
+checkresiduals(arima.seasonal.2)
+Acf(arima.seasonal.2$residuals, 100)
+```
+
+## auto.arima()
+```{r}
+arima.seasonal.3 <- auto.arima(water_level.ts, seasonal = TRUE, d = 1, D = 1)
+arima.seasonal.3
+checkresiduals(arima.seasonal.3)
+Acf(arima.seasonal.3$residuals, 100)
+```
+### Best model is ARIMA(2,1,0)(0,1,1)
+## sARIMA Forecast
+```{r}
+arima.seasonal.forecast <- forecast(arima.seasonal, h=h)
+plot(arima.seasonal.forecast, ylab="Water Level")
+autoplot(water_test) + autolayer(arima.seasonal.forecast$mean, series="Forecast")
+```
+
+###########################################################
+# STEP 7: Model & Forecast: regression with ARIMA errors  #
+###########################################################
+
+
+```{r}
+xreg <- cbind(temperature.ts, precipitation.ts)
+arima.1 <- Arima(water_level.ts, xreg = xreg, order = c(1, 1, 0), seasonal = c(0, 1, 0))
+arima.1
+checkresiduals(arima.1)
+acf(arima.1$residuals, 100)
+Acf(arima.1$residuals, 100)
+```
+
+```{r}
+arima.2 <- auto.arima(water_level.ts, xreg = xreg, D = 1, d = 1)
+arima.2
+acf(residuals(arima.2))
+checkresiduals(arima.2)
+Acf(arima.2$residuals, 100)
+```
+### Regression with ARIMA(2,1,1)(2,1,0) is the best model.
+
+## Forecast
+```{r}
+## Forecast regressions with seasonal naive method
+temperature.fcst <- snaive(temperature.ts, 60)$mean
+precipitation.fcst <- snaive(precipitation.ts, 60)$mean
+x_reg.fcst <- cbind(temperature.fcst, precipitation.fcst)
+arima.reg.forecast <- forecast(arima.2, xreg = x_reg.fcst, h=h)
+plot(arima.reg.forecast, ylab="Water Level")
+```
+
+###################################################
+# STEP 7: Model & Forecast: Spectral Analysis     #
+###################################################
+
+```{r}
+# Find best k
+AIC = rep(NA, 6)
+K = c()
+
+for (k in 1:6){
+  harmonics <- fourier(water_level.ts, K = k)
+  fit <- auto.arima(water_level.ts, xreg = harmonics, seasonal = FALSE)
+  aic <- AIC(fit)
+  AIC[k] <- aic
+}
+
+AIC # Best k is 3
+
+harmonics <- fourier(water_level.ts, K = 3)
+spectral.1 <- auto.arima(water_level.ts, xreg = harmonics, seasonal = FALSE)
+spectral.1
+checkresiduals(spectral.1)
+```
+
+## Forecast
+```{r}
+spectral.forecast <- forecast(spectral.1, xreg = fourier(water_level.ts, 3, 48))
+plot(spectral.forecast, ylab="Water Level")
+```
+
+#######################################
+# STEP 7: Model & Forecast: VAR       #
+#######################################
+
+```{r}
+var.1<- VAR(y=data.frame(water_level.ts, temperature.ts, precipitation.ts), p=3, type='both', season=12)
+summary(var.1)
+preds<- predict(var.1, n.ahead=60)
+
+# Temperature
+temp_pred<- ts(preds$fcst$temp[,1], start=c(2022,1), fr=12)
+ts.plot(cbind(temperature.ts, temp_pred), lty=1:2, main="Temperature Prediction", ylab="Temperature") 
+ts.plot(temp_pred, main="Temperature Prediction", ylab="Temperature")
+
+# Precipitation
+precip_pred<- ts(preds$fcst$precip[,1], start=c(2022,1), fr=12)
+ts.plot(cbind(precipitation.ts, precip_pred), lty=1:2, main="Precipitation Prediction", ylab="Precipitation") 
+ts.plot(precip_pred, main="Precipitation Prediction", ylab="Precipitation")
+
+# Water Level
+water_pred<- ts(preds$fcst$water_level.ts[,1], start=c(2022,1), fr=12)
+ts.plot(cbind(water_level.ts, water_pred), lty=1:2, main="Water Level Prediction", ylab="Water Level") 
+ts.plot(water_pred, main="Water Level Prediction", ylab="Water")
+ts.plot(residuals(var.1), col=1:3)
+acf(residuals(var.1), 50)
+pacf(residuals(var.1), 50)
+```
+
+
+
+#######################################
+# STEP 8: Model Testing               #
+#######################################
+
+
+## Cross-Valitation with rolling window
+
+```{r}
+k <- 408 # minimum data length for fitting a model
+n <- 528 # Number of data points
+
+p <- 12 ### Period
+H <- 60 # Forecast Horizon
+```
+
+```{r}
+st <- tsp(water_level.ts)[1]+(k-2)/p #  gives the start time in time units,
+
+
+error.seasonal.arima.1 <- matrix(NA,n-k,H)
+error.seasonal.arima.2 <- matrix(NA,n-k,H)
+error.arima.1 <- matrix(NA,n-k,H)
+error.arima.2 <- matrix(NA,n-k,H)
+error.spectral <- matrix(NA,n-k,H)
+
+
+mape.seasonal.arima.1 <- matrix(NA,n-k,H)
+mape.seasonal.arima.2 <- matrix(NA,n-k,H)
+mape.arima.1 <- matrix(NA,n-k,H)
+mape.arima.2 <- matrix(NA,n-k,H)
+mape.spectral <- matrix(NA,n-k,H)
+
+rmse_1.seasonal.arima.1 <- matrix(NA,n-k,H)
+rmse_1.seasonal.arima.2 <- matrix(NA,n-k,H)
+rmse_1.arima.1 <- matrix(NA,n-k,H)
+rmse_1.arima.2 <- matrix(NA,n-k,H)
+rmse_1.spectral <- matrix(NA,n-k,H)
+rmse_1.var <- matrix(NA,n-k,H)
+rmse_1.base <- matrix(NA,n-k,H)
+
+mape_1.seasonal.arima.1 <- matrix(NA,n-k,H)
+mape_1.seasonal.arima.2 <- matrix(NA,n-k,H)
+mape_1.arima.1 <- matrix(NA,n-k,H)
+mape_1.arima.2 <- matrix(NA,n-k,H)
+mape_1.spectral <- matrix(NA,n-k,H)
+mape_1.var <- matrix(NA,n-k,H)
+
+```
+
+```{r}
+defaultW <- getOption("warn") 
+options(warn = -1)
+
+
+for(i in 1:60)
+{
+  
+  ### One Month rolling forecasting
+  # Expanding Window 
+  train_1 <- window(water_level.ts, end=st + i/p)  ## Window Length: k+i
+  train_1.temperature <- window(temperature.ts, end=st + i/p)  ## Window Length: k+i
+  train_1.precipitation <- window(precipitation.ts, end=st + i/p)  ## Window Length: k+i
+  train_1.xreg <- cbind(train_1.temperature, train_1.precipitation)
+  train_1.temperature.fcst <- snaive(train_1.temperature, 60)$mean
+  train_1.precipitation.fcst <- naive(train_1.precipitation, 60)$mean
+  train_1.xreg.fcst <- cbind(train_1.temperature.fcst, train_1.precipitation.fcst)
+  train_1.harmonics <- fourier(train_1, K = 3)
+  
+  # Sliding Window - keep the training window of fixed length. 
+  # The training set always consists of k observations.
+  train_2 <- window(water_level.ts, start=st+(i-k+1)/p, end=st+i/p) ## Window Length: k
+  
+  # Test dataset
+  test <- window(water_level.ts, start=st + (i+1)/p, end=st + (i+H)/p) ## Window Length: H
+  
+  fit_1.seasonal.arima.1 <- Arima(train_1, order=c(2,1,0), seasonal=list(order=c(0,1,1), period=p),
+                include.drift=TRUE,  method="ML")
+  fcast_1.seasonal.arima.1 <- forecast(fit_1.seasonal.arima.1, h=H)
+  
+  
+  fit_1.arima.2 <- Arima(train_1, xreg = train_1.xreg, order=c(2,1,1), seasonal=list(order=c(2,1,0), period=p),
+                include.drift=TRUE,  method="ML")
+  fcast_1.arima.2 <- forecast(fit_1.arima.2, h=H, xreg = train_1.xreg.fcst) 
+
+  fit_1.spectral <- auto.arima(train_1, xreg = train_1.harmonics, seasonal = FALSE)
+
+  fcast_1.spectral <- forecast(fit_1.spectral, xreg = fourier(train_1, 3, H)) 
+  
+  fit_1.var <- VAR(y=data.frame(train_1, train_1.temperature, train_1.precipitation), p=3, type='both', season=12)
+  
+  fcast_1.var <- predict(fit_1.var, n.ahead = 60)
+  water_pred.var<- fcast_1.var$fcst$train_1[,1]
+  
+  waterSnaive <- snaive(train_1, h=60)
+  
+  rmse_1.seasonal.arima.1[i,1:length(test)] <- (fcast_1.seasonal.arima.1[['mean']]-test)^2
+  rmse_1.arima.2[i,1:length(test)] <- (fcast_1.arima.2[['mean']]-test)^2
+  rmse_1.spectral[i,1:length(test)] <- (fcast_1.spectral[['mean']]-test)^2
+  rmse_1.var[i,1:length(test)] <- (water_pred.var-test)^2
+  rmse_1.base[i, 1:length(test)] <- accuracy(waterSnaive$mean, test)[,2] # RMSE
+}
+```
+
+
+```{r}
+dev.new(width=6, height=6,pointsize=12)
+plot(1:60, colMeans(rmse_1.seasonal.arima.1,na.rm=TRUE), type="l",col=1,xlab="Iterations", ylab="RMSE", main = "Cross-Validation RMSE by Model (Rolling Window)", ylim = c(0, 15))
+lines(1:60, colMeans(rmse_1.arima.2,na.rm=TRUE), type="l",col=2)
+lines(1:60, colMeans(rmse_1.spectral,na.rm=TRUE), type="l",col=3)
+lines(1:60, colMeans(rmse_1.var,na.rm=TRUE), type="l",col=4)
+#lines(1:60, colMeans(rmse_1.base,na.rm=TRUE), type="l",col=5)
+legend("topleft",legend=c("Seasonal ARIMA", 'Regression with ARIMA Errors', "Spectral Analysis", "VAR"),col=1:4,lty=1)
+
+```
+
+## Cross-Valitation with expanding window
+
+```{r}
+rmse_2.seasonal.arima.1 <- matrix(NA,n-k,H)
+rmse_2.seasonal.arima.2 <- matrix(NA,n-k,H)
+rmse_2.arima.1 <- matrix(NA,n-k,H)
+rmse_2.arima.2 <- matrix(NA,n-k,H)
+rmse_2.spectral <- matrix(NA,n-k,H)
+rmse_2.var <- matrix(NA,n-k,H)
+rmse_2.base <- matrix(NA,n-k,H)
+
+mape_2.seasonal.arima.1 <- matrix(NA,n-k,H)
+mape_2.seasonal.arima.2 <- matrix(NA,n-k,H)
+mape_2.arima.1 <- matrix(NA,n-k,H)
+mape_2.arima.2 <- matrix(NA,n-k,H)
+mape_2.spectral <- matrix(NA,n-k,H)
+mape_2.var <- matrix(NA,n-k,H)
+```
+
+
+```{r}
+defaultW <- getOption("warn") 
+options(warn = -1)
+
+
+for(i in 1:60)
+{
+  train_2 <- window(water_level.ts, start=st+(i-k+1)/p, end=st+i/p)  ## Window Length: k+i
+  train_2.temperature <- window(temperature.ts, start=st+(i-k+1)/p, end=st+i/p)  ## Window Length: k+i
+  train_2.precipitation <- window(precipitation.ts, start=st+(i-k+1)/p, end=st+i/p)  ## Window Length: k+i
+  train_2.xreg <- cbind(train_2.temperature, train_2.precipitation)
+  train_2.temperature.fcst <- snaive(train_2.temperature, 60)$mean
+  train_2.precipitation.fcst <- naive(train_2.precipitation, 60)$mean
+  train_2.xreg.fcst <- cbind(train_2.temperature.fcst, train_2.precipitation.fcst)
+  train_2.harmonics <- fourier(train_2, K = 3)
+  
+  # Sliding Window - keep the training window of fixed length. 
+  # The training set always consists of k observations.
+  train_2 <- window(water_level.ts, start=st+(i-k+1)/p, end=st+i/p) ## Window Length: k
+  
+  # Test dataset
+  test <- window(water_level.ts, start=st + (i+1)/p, end=st + (i+H)/p) ## Window Length: H
+
+  
+  fit_2.seasonal.arima.1 <- Arima(train_2, order=c(2,1,0), seasonal=list(order=c(1,1,0), period=p),
+                include.drift=TRUE,  method="ML")
+  fcast_2.seasonal.arima.1 <- forecast(fit_2.seasonal.arima.1, h=H)
+
+  
+  fit_2.arima.2 <- Arima(train_2, xreg = train_2.xreg, order=c(2,1,0), seasonal=list(order=c(2,0,0), period=p),
+                include.drift=TRUE,  method="ML")
+  fcast_2.arima.2 <- forecast(fit_2.arima.2, h=H, xreg = train_2.xreg.fcst) 
+
+  fit_2.spectral <- auto.arima(train_2, xreg = train_2.harmonics, seasonal = FALSE)
+
+  fcast_2.spectral <- forecast(fit_2.spectral, xreg = fourier(train_2, 3, H)) 
+  
+  fit_2.var <- VAR(y=data.frame(train_2, train_2.temperature, train_2.precipitation), p=3, type='both', season=12)
+  
+  fcast_2.var <- predict(fit_2.var, n.ahead = 60)
+  water_pred.var<- fcast_2.var$fcst$train_2[,1]
+  
+  waterSnaive <- snaive(train_2, h=60)
+  
+  rmse_2.seasonal.arima.1[i,1:length(test)] <- (fcast_2.seasonal.arima.1[['mean']]-test)^2
+  rmse_2.arima.2[i,1:length(test)] <- (fcast_2.arima.2[['mean']]-test)^2
+  rmse_2.spectral[i,1:length(test)] <- (fcast_2.spectral[['mean']]-test)^2
+  rmse_2.var[i,1:length(test)] <- (water_pred.var-test)^2
+  rmse_2.base[i, 1:length(test)] <- accuracy(waterSnaive$mean, test)[,2] # RMSE
+}
+```
+
+
+```{r}
+dev.new(width=6, height=6,pointsize=12)
+plot(1:60, colMeans(rmse_2.seasonal.arima.1,na.rm=TRUE), type="l",col=1,xlab="Iterations", ylab="RMSE", main = "Cross-Validation RMSE by Model (Expanding Window)")
+lines(1:60, colMeans(rmse_2.arima.2,na.rm=TRUE), type="l",col=2)
+lines(1:60, colMeans(rmse_2.spectral,na.rm=TRUE), type="l",col=3)
+lines(1:60, colMeans(rmse_2.var,na.rm=TRUE), type="l",col=4)
+#lines(1:60, colMeans(rmse_2.base,na.rm=TRUE), type="l",col=5)
+legend("topleft",legend=c("Seasonal ARIMA", 'Regression with ARIMA Errors (auto.arima)', "Spectral Analysis", "VAR"),col=1:4,lty=1)
+```
+
+
+
+
