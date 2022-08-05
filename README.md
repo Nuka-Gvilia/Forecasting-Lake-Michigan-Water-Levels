@@ -5,7 +5,7 @@
 Part of the Time Series Analysis and Forecasting class at the University of Chicago's Master of Science in Analytics program 
 
 ## Project Intro/Objective
-
+Build time series models to forecast monthly average water levels of Lake Michigan.
 
 ## Methods Used
 - SARIMA
@@ -17,7 +17,7 @@ Part of the Time Series Analysis and Forecasting class at the University of Chic
 - R Studio
 
 ## Dataset 
-Dataset with more information can be found [here](https://www.kaggle.com/datasets/sachinkumar413/alzheimer-mri-dataset)
+The data were pulled from the National Oceanic  &  Atmospheric Administration (NOAA) API and weather.gov tables.
 
 The dataset consists of 528 observations and spans the time period 1978-2021 on a monthly basis.
 - Dependent variable: water level of Lake Michigan (in feet above sea level)
